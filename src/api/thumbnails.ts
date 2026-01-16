@@ -1,9 +1,10 @@
 import { getBearerToken, validateJWT } from '../auth';
 import { respondWithJSON } from './json';
 import { getVideo, updateVideo } from '../db/videos';
+import { getInMemoryURL } from './assets';
 import type { ApiConfig } from '../config';
 import type { BunRequest } from 'bun';
-import { BadRequestError, NotFoundError } from './errors';
+import { BadRequestError, NotFoundError, UserForbiddenError } from './errors';
 
 type Thumbnail = {
 	data: ArrayBuffer;
@@ -45,44 +46,45 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
 	const token = getBearerToken(req.headers);
 	const userID = validateJWT(token, cfg.jwtSecret);
 
-	console.log('uploading thumbnail for video', videoId, 'by user', userID);
-
-	const data = await req.formData();
-	const file = data.get('thumbnail') as File | null;
-	if (!file) {
-		throw new BadRequestError('No thumbnail file provided');
-	}
-
-	const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10 MB
-
-	if (file.size > MAX_UPLOAD_SIZE) {
-		throw new BadRequestError('Thumbnail file is too large');
-	}
-
-	// Read all the image data into a ArrayBuffer
-	const arrayBuffer = await file.arrayBuffer();
-
-	// Get the video's metadata from the SQLite database
 	const video = getVideo(cfg.db, videoId);
 	if (!video) {
 		throw new NotFoundError("Couldn't find video");
 	}
+	if (video.userID !== userID) {
+		throw new UserForbiddenError('Not authorized to update this video');
+	}
 
-	const thumbnail: Thumbnail = {
-		data: arrayBuffer,
-		mediaType: file.type,
-	};
+	const formData = await req.formData();
+	const file = formData.get('thumbnail');
+	if (!(file instanceof File)) {
+		throw new BadRequestError('Thumbnail file missing');
+	}
 
-	// Store the thumbnail in the global map
-	videoThumbnails.set(videoId, thumbnail);
+	const MAX_UPLOAD_SIZE = 10 << 20;
 
-	// Build the thumbnail URL in the format: http://localhost:<port>/api/thumbnails/:videoID
-	const thumbnailURL = `http://localhost:${cfg.port}/api/thumbnails/${videoId}`;
+	if (file.size > MAX_UPLOAD_SIZE) {
+		throw new BadRequestError(
+			`Thumbnail file exceeds the maximum allowed size of 10MB`,
+		);
+	}
 
-	// Update the video metadata with the new thumbnail URL
-	video.thumbnailURL = thumbnailURL;
+	const mediaType = file.type;
+	if (!mediaType) {
+		throw new BadRequestError('Missing Content-Type for thumbnail');
+	}
 
-	// Update the record in the database
+	const fileData = await file.arrayBuffer();
+	if (!fileData) {
+		throw new Error('Error reading file data');
+	}
+
+	videoThumbnails.set(videoId, {
+		data: fileData,
+		mediaType,
+	});
+
+	const urlPath = getInMemoryURL(cfg, videoId);
+	video.thumbnailURL = urlPath;
 	updateVideo(cfg.db, video);
 
 	return respondWithJSON(200, video);
