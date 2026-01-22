@@ -1,4 +1,5 @@
 import { getBearerToken, validateJWT } from '../auth';
+import { getAssetDiskPath, getAssetURL, getAssetPath } from './assets';
 import { respondWithJSON } from './json';
 import { getVideo, updateVideo } from '../db/videos';
 import type { ApiConfig } from '../config';
@@ -15,6 +16,7 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
 	const userID = validateJWT(token, cfg.jwtSecret);
 
 	const video = getVideo(cfg.db, videoId);
+
 	if (!video) {
 		throw new NotFoundError("Couldn't find video");
 	}
@@ -41,15 +43,13 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
 		throw new BadRequestError('Missing Content-Type for thumbnail');
 	}
 
-	const fileData = Buffer.from(await file.arrayBuffer());
-	if (!fileData) {
-		throw new Error('Error reading file data');
-	}
+	const assetPath = getAssetPath(mediaType);
+	const assetDiskPath = getAssetDiskPath(cfg, assetPath);
 
-	const base64Data = fileData.toString('base64');
-	const base64DataURL = `data:${mediaType};base64,${base64Data}`;
-	video.thumbnailURL = base64DataURL;
+	await Bun.write(assetDiskPath, file);
 
+	const urlPath = getAssetURL(cfg, assetPath);
+	video.thumbnailURL = urlPath;
 	updateVideo(cfg.db, video);
 
 	return respondWithJSON(200, video);
