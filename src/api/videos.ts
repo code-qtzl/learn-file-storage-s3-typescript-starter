@@ -1,7 +1,10 @@
 import { respondWithJSON } from './json';
 import { getBearerToken, validateJWT } from '../auth';
-import { getVideo } from '../db/videos';
+import { getVideo, updateVideo } from '../db/videos';
 import { BadRequestError, NotFoundError, UserForbiddenError } from './errors';
+import { mediaTypeToExt } from './assets';
+import { randomBytes } from 'crypto';
+import { S3Client } from 'bun';
 
 import { type ApiConfig } from '../config';
 import type { BunRequest } from 'bun';
@@ -51,5 +54,28 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 		);
 	}
 
-	return respondWithJSON(200, null);
+	// Step 8: Save uploaded file to a temporary file on disk
+	const tempFilePath = `/tmp/video-${randomBytes(16).toString('hex')}.mp4`;
+	await Bun.write(tempFilePath, file);
+
+	try {
+		// Step 9: Put the object into S3
+		const fileKey = `${randomBytes(32).toString('hex')}${mediaTypeToExt(mediaType)}`;
+		const s3Client = new S3Client({
+			bucket: cfg.s3Bucket,
+			region: cfg.s3Region,
+		});
+
+		await s3Client.file(fileKey).write(Bun.file(tempFilePath));
+
+		// Step 10: Update video metadata with S3 URL
+		const videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${fileKey}`;
+		video.videoURL = videoURL;
+		updateVideo(cfg.db, video);
+
+		return respondWithJSON(200, video);
+	} finally {
+		// Clean up temporary file
+		await Bun.file(tempFilePath).delete();
+	}
 }
