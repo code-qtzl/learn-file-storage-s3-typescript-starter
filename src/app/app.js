@@ -206,6 +206,15 @@ async function getVideos() {
 		}
 
 		const videos = await res.json();
+
+		// videos.sort((a, b) => {
+		// 	// Videos with thumbnails first
+		// 	if (a.thumbnailURL && !b.thumbnailURL) return -1;
+		// 	if (!a.thumbnailURL && b.thumbnailURL) return 1;
+		// 	// Then by creation date (newest first)
+		// 	return new Date(b.createdAt) - new Date(a.createdAt);
+		// });
+
 		const videoList = document.getElementById('video-list');
 		videoList.innerHTML = '';
 		for (const video of videos) {
