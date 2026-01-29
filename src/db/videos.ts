@@ -42,7 +42,8 @@ export function getVideos(db: Database, userID: string): Video[] {
       user_id
     FROM videos
     WHERE user_id = ?
-    ORDER BY created_at DESC
+    ORDER BY 
+			created_at DESC
   `;
 
 	const rows = db.query<VideoRow, [string]>(sql).all(userID);
