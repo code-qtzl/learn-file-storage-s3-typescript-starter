@@ -62,24 +62,28 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 		// Step 9: Get aspect ratio from the temp file
 		const aspectRatio = await getVideoAspectRatio(tempFilePath);
 
-		// Step 10: Put the object into S3 with aspect ratio prefix
+		// Step 10: Process video for fast start encoding
+		const processedFilePath = await processVideoForFastStart(tempFilePath);
+
+		// Step 11: Put the object into S3 with aspect ratio prefix
 		const fileKey = `${aspectRatio}/${randomBytes(32).toString('hex')}${mediaTypeToExt(mediaType)}`;
 		const s3Client = new S3Client({
 			bucket: cfg.s3Bucket,
 			region: cfg.s3Region,
 		});
 
-		await s3Client.file(fileKey).write(Bun.file(tempFilePath));
+		await s3Client.file(fileKey).write(Bun.file(processedFilePath));
 
-		// Step 10: Update video metadata with S3 URL
+		// Step 12: Update video metadata with S3 URL
 		const videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${fileKey}`;
 		video.videoURL = videoURL;
 		updateVideo(cfg.db, video);
 
 		return respondWithJSON(200, video);
 	} finally {
-		// Clean up temporary file
+		// Clean up temporary files
 		await Bun.file(tempFilePath).delete();
+		await Bun.file(`${tempFilePath}.processed`).delete();
 	}
 }
 
@@ -125,4 +129,35 @@ export async function getVideoAspectRatio(filePath: string): Promise<string> {
 	}
 
 	return 'other';
+}
+
+export async function processVideoForFastStart(inputFilePath: string) {
+	const processedFilePath = `${inputFilePath}.processed.mp4`;
+
+	const process = Bun.spawn(
+		[
+			'ffmpeg',
+			'-i',
+			inputFilePath,
+			'-movflags',
+			'faststart',
+			'-map_metadata',
+			'0',
+			'-codec',
+			'copy',
+			'-f',
+			'mp4',
+			processedFilePath,
+		],
+		{ stderr: 'pipe' },
+	);
+
+	const errorText = await new Response(process.stderr).text();
+	const exitCode = await process.exited;
+
+	if (exitCode !== 0) {
+		throw new Error(`FFmpeg error: ${errorText}`);
+	}
+
+	return processedFilePath;
 }
