@@ -1,9 +1,10 @@
+import { s3, type S3Client } from 'bun';
 import { newDatabase } from './db/db';
 import type { Database } from 'bun:sqlite';
-import { S3Client } from 'bun';
 
 export type ApiConfig = {
 	db: Database;
+	s3Client: S3Client;
 	jwtSecret: string;
 	platform: string;
 	filepathRoot: string;
@@ -12,7 +13,6 @@ export type ApiConfig = {
 	s3Region: string;
 	s3CfDistribution: string;
 	port: string;
-	S3Client: string;
 };
 
 const pathToDB = envOrThrow('DB_PATH');
@@ -24,12 +24,13 @@ const s3Bucket = envOrThrow('S3_BUCKET');
 const s3Region = envOrThrow('S3_REGION');
 const s3CfDistribution = envOrThrow('S3_CF_DISTRO');
 const port = envOrThrow('PORT');
-const s3Client = envOrThrow('S3_CLIENT');
 
 const db = newDatabase(pathToDB);
+const client = s3;
 
 export const cfg: ApiConfig = {
 	db: db,
+	s3Client: client,
 	jwtSecret: jwtSecret,
 	platform: platform,
 	filepathRoot: filepathRoot,
@@ -38,7 +39,6 @@ export const cfg: ApiConfig = {
 	s3Region: s3Region,
 	s3CfDistribution: s3CfDistribution,
 	port: port,
-	S3Client: s3Client,
 };
 
 function envOrThrow(key: string) {
